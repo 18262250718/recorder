@@ -24,3 +24,9 @@ class InfoActivity(BaseActivity):
 
     def get_text(self):
         return self.text.get('0.0', 'end')
+
+    def set_text(self, text):
+        assert isinstance(self.text, tk.Text)
+        self.clear()
+        self.text.insert(tk.INSERT, text)
+        print('ee')

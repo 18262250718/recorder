@@ -1,4 +1,5 @@
 import tkinter as tk
+from config import *
 from recorder import Recorder
 
 
@@ -6,6 +7,8 @@ class BaseFrame(object):
     def __init__(self, main_activity):
         self._main_activity = main_activity  # type:MainActivity
         self._root = self._main_activity.get_root()
+        self._conf = self._main_activity.get_conf()     # type:Config
+        self._recorder = self._main_activity.get_recorder() # type:Recorder
         self._frame = tk.Frame(self._root)
         self.pack(self._frame)
         self.init_activities()
@@ -30,6 +33,7 @@ class TaskFrame(BaseFrame):
         self._task_name = task_name
         self._task_details = task_details   # [ {'start':, 'end':, 'info':}  ]
         self._tmp_info = ''
+        self._last_infos = []  # 用于撤销
         # 组件
         self.label_name = None
         self.button_record = None
@@ -58,6 +62,7 @@ class TaskFrame(BaseFrame):
         self.button_insert.grid(row=0, column=4)
         self.label_time = tk.Label(frame, textvariable=self.label_time_text)
         self.label_time.grid(row=0, column=5)
+        self.label_time_text.set('{:.2f}h'.format(self.get_all_time() / 3600))
 
     def init_activities(self):
         from info import InfoActivity
@@ -80,13 +85,24 @@ class TaskFrame(BaseFrame):
             all_time += ( info['end'] - info['start'] )
         return all_time
 
+    def update(self):
+        self._task_details = self._recorder.get_task_today_details(self._task_name)
+        self.label_time_text.set('{:0.2f}h'.format(self.get_all_time()/3600))
+
+    def cancel_last(self):
+        self.update()
+        if len(self._last_infos):
+            self.activity_info.set_text(self._last_infos[-1])
+            self._last_infos.pop()
+
     # 功能类接口
     def on_click_record(self):
-        task_detail = self._main_activity.record_task(self, self.activity_info.get_text())
-        self._task_details.append(task_detail)
+        self._recorder.record_task(self._task_name, self.activity_info.get_text())
         self.label_time_text.set('{:.2f}h'.format(self.get_all_time()/3600))
         # 清空记录
+        self._last_infos.append(self.activity_info.get_text())
         self.activity_info.clear()
+        self.update()
 
     def on_click_del(self):
         self._main_activity.del_task(self)
@@ -134,13 +150,14 @@ class HeadFrame(BaseFrame):
         from history import HistoryActivity
         self.activity_history = HistoryActivity(self._main_activity)
         from setting import SettingActivity
-        self.activity_setting = SettingActivity(self._main_activity, onsave=self.on_save_setting)
+        self.activity_setting = SettingActivity(self._main_activity)
 
     def on_click_add(self):
         name = self.entry_task_text.get()
         self._main_activity.add_task(name)
 
     def on_click_cancel(self):
+        self._main_activity.cancel_record()
         pass
 
     def on_click_history(self):
@@ -158,30 +175,53 @@ class MainActivity(object):
     def __init__(self):
         # 初始化
         self.root = tk.Tk()
-        self.root.title('main')
+        self.root.title('记录器')
+        self.root.resizable(0, 0)
+        # 配置
+        self.config = None
+        self.task_recorder = None
+        self.load_config()
         # 变量
-        self.task_recorder = Recorder()
         self.head_frame = None
         self.task_frames = {}
+        # 根据配置初始化
+        self.init_by_config()
 
     def open(self):
         self.head_frame = HeadFrame(self)
         self.head_frame.show(0, 0)
         self.root.mainloop()
 
+    def load_config(self):
+        self.config = Config('config.json')
+        self.task_recorder = Recorder(self.config)
+
+    def init_by_config(self):
+        # 根据配置添加任务
+        tasks = self.config.get_conf(CONF_TASKS, []) # type:list
+        for taskname in tasks.__iter__():
+            self.add_task(taskname, False)
+
     def get_root(self):
         return self.root
 
-    def add_task(self, name):
+    def get_conf(self):
+        return self.config
+
+    def add_task(self, name, save=True):
         if len(name) == 0 or name in self.task_frames:
             return
-        task_frame = TaskFrame(self, name)
+        task_frame = TaskFrame(self, name, self.task_recorder.get_task_today_details(name))
         self.task_frames[name] = task_frame
         task_frame.show(len(self.task_frames), 0)
+        # 添加进配置
+        if save:
+            conf_tasks = self.config.get_conf(CONF_TASKS, []) # type:list
+            conf_tasks.append(name)
+            self.config.save_conf(CONF_TASKS, conf_tasks)
 
-    def record_task(self, task, info):
-        assert isinstance(task, TaskFrame)
-        return self.task_recorder.record_task(task.get_name(), info)
+    def get_recorder(self):
+        return self.task_recorder
 
     def del_task(self, task):
         assert isinstance(task, TaskFrame)
@@ -190,9 +230,24 @@ class MainActivity(object):
             return
         self.task_frames.pop(name)
         task.close()
+        # 添加进配置
+        conf_tasks = self.config.get_conf(CONF_TASKS, []) # type:list
+        conf_tasks.remove(name)
+        self.config.save_conf(CONF_TASKS, conf_tasks)
+
+    def update_task(self, name, cancel=False):
+        if name not in self.task_frames:
+            return
+        if cancel:
+            self.task_frames[name].cancel_last()
+        else:
+            self.task_frames[name].update()
+
+    def cancel_record(self):
+        record = self.task_recorder.cancel_record()
+        self.update_task(record, cancel=True)
 
 
 if __name__ == '__main__':
     root = MainActivity()
     root.open()
-    #root.root.mainloop()

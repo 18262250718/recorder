@@ -1,6 +1,5 @@
 import tkinter as tk
 
-
 class BaseActivity(object):
     def __init__(self, main_activity, onsave=None):
         # 变量
@@ -16,6 +15,7 @@ class BaseActivity(object):
         self._main_activity = main_activity  # type:MainActivity
         self._root = self._main_activity.get_root()
         self._top_level = tk.Toplevel()
+        self._top_level.resizable(0, 0)
         self._frame = tk.Frame(self._top_level)
         self._top_level.protocol("WM_DELETE_WINDOW", self.on_close)
         self.pack(self._frame)
